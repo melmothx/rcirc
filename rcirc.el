@@ -46,6 +46,7 @@
 (require 'ring)
 (require 'time-date)
 (eval-when-compile (require 'cl))
+(require 'tls)
 
 (defgroup rcirc nil
   "Simple IRC client."
@@ -76,6 +77,13 @@ for this connection.
 VALUE must be a number or string.  If absent,
 `rcirc-default-port' is used.
 
+`:use-tls'
+
+VALUE is a boolean. If true, the connection will be established
+using the tls.el library. If absent, `rcirc-default-use-tls' is
+used, which in turn default to nil (false).
+
+
 `:user-name'
 
 VALUE must be a string.  If absent, `rcirc-default-user-name' is
@@ -102,12 +110,18 @@ connected to automatically."
 					     (:user-name string)
 					     (:password string)
 					     (:full-name string)
+					     (:use-tls boolean)
 					     (:channels (repeat string)))))
   :group 'rcirc)
 
 (defcustom rcirc-default-port 6667
   "The default port to connect to."
   :type 'integer
+  :group 'rcirc)
+
+(defcustom rcirc-default-use-tls nil
+  "Use SSL/TLS by default?"
+  :type 'boolean
   :group 'rcirc)
 
 (defcustom rcirc-default-nick (user-login-name)
@@ -409,6 +423,7 @@ If ARG is non-nil, instead prompt for connection parameters."
                                      'rcirc-user-name-history))
 	     (password (read-passwd "IRC Password: " nil
                                     (plist-get server-plist :password)))
+	     (use-tls (yes-or-no-p "Use SSL/TLS? "))
 	     (channels (split-string
 			(read-string "IRC Channels: "
 				     (mapconcat 'identity
@@ -418,7 +433,7 @@ If ARG is non-nil, instead prompt for connection parameters."
 			"[, ]+" t)))
 	(rcirc-connect server port nick user-name
 		       rcirc-default-full-name
-		       channels password))
+		       channels password use-tls))
     ;; connect to servers in `rcirc-server-alist'
     (let (connected-servers)
       (dolist (c rcirc-server-alist)
@@ -430,6 +445,8 @@ If ARG is non-nil, instead prompt for connection parameters."
 	      (full-name (or (plist-get (cdr c) :full-name)
 			     rcirc-default-full-name))
 	      (channels (plist-get (cdr c) :channels))
+	      (use-tls (or (plist-get (cdr c) :use-tls)
+		       rcirc-default-use-tls))
               (password (plist-get (cdr c) :password)))
 	  (when server
 	    (let (connected)
@@ -439,13 +456,14 @@ If ARG is non-nil, instead prompt for connection parameters."
 	      (if (not connected)
 		  (condition-case e
 		      (rcirc-connect server port nick user-name
-				     full-name channels password)
+				     full-name channels password use-tls)
 		    (quit (message "Quit connecting to %s" server)))
 		(with-current-buffer (process-buffer connected)
+		  (if (process-contact (get-buffer-process
+					(current-buffer)) :host)
 		  (setq connected-servers
-			(cons (process-contact (get-buffer-process
-						(current-buffer)) :host)
-			      connected-servers))))))))
+			(cons (process-name connected)
+			      connected-servers)))))))))
       (when connected-servers
 	(message "Already connected to %s"
 		 (if (cdr connected-servers)
@@ -471,7 +489,7 @@ If ARG is non-nil, instead prompt for connection parameters."
 
 ;;;###autoload
 (defun rcirc-connect (server &optional port nick user-name
-                             full-name startup-channels password)
+                             full-name startup-channels password use-tls)
   (save-excursion
     (message "Connecting to %s..." server)
     (let* ((inhibit-eol-conversion)
@@ -484,7 +502,14 @@ If ARG is non-nil, instead prompt for connection parameters."
 	   (user-name (or user-name rcirc-default-user-name))
 	   (full-name (or full-name rcirc-default-full-name))
 	   (startup-channels startup-channels)
-           (process (make-network-process :name server :host server :service port-number)))
+           (process)) 
+      (if use-tls
+	  (setq process (open-tls-stream server nil server port-number))
+	(setq process (open-network-stream server nil server port-number)))
+      (unless process
+	(error (concat 
+	       (format "Couldn't connect to %s on %d " server port-number)
+	       (when use-tls "using TLS/SSL"))))
       ;; set up process
       (set-process-coding-system process 'raw-text 'raw-text)
       (switch-to-buffer (rcirc-generate-new-buffer-name process nil))
@@ -698,7 +723,7 @@ Function is called with PROCESS, COMMAND, SENDER, ARGS and LINE.")
   "Send PROCESS a STRING plus a newline."
   (let ((string (concat (encode-coding-string string rcirc-encode-coding-system)
                         "\n")))
-    (unless (eq (process-status process) 'open)
+    (unless (member (process-status process) '(open run))
       (error "Network connection to %s is not open"
              (process-name process)))
     (rcirc-debug process string)
