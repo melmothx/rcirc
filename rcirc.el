@@ -1456,10 +1456,11 @@ record activity."
 	(let ((moving (= (point) rcirc-prompt-end-marker))
 	      (old-point (point-marker))
 	      (fill-start (marker-position rcirc-prompt-start-marker)))
-
+	  
+	  (setq text 
+		(decode-coding-string text (detect-coding-string text t)))
 	  (unless (string= sender (rcirc-nick process))
-	    ;; only decode text from other senders, not ours
-	    (setq text (decode-coding-string text rcirc-decode-coding-system))
+
 	    ;; mark the line with overlay arrow
 	    (unless (or (marker-position overlay-arrow-position)
 			(get-buffer-window (current-buffer))
