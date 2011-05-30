@@ -1426,7 +1426,8 @@ Returns nil if the information is not recorded."
       (- rcirc-current-line last-activity-line))))
 
 (defvar rcirc-markup-text-functions
-  '(rcirc-markup-attributes
+  '(rcirc-markup-strip-irc-colors
+    rcirc-markup-attributes
     rcirc-markup-my-nick
     rcirc-markup-urls
     rcirc-markup-keywords
@@ -2327,6 +2328,10 @@ keywords when no KEYWORD is given."
   (goto-char (point-min))
   (insert (rcirc-facify (format-time-string rcirc-time-format)
 			'rcirc-timestamp)))
+
+(defun rcirc-markup-strip-irc-colors (sender response)
+  (while (re-search-forward "\C-c\\([0-9][0-9]?\\(,[0-9][0-9]?\\)?\\)?" nil t)
+    (delete-region (match-beginning 0) (match-end 0))))
 
 (defun rcirc-markup-attributes (sender response)
   (while (re-search-forward "\\([\C-b\C-_\C-v]\\).*?\\(\\1\\|\C-o\\)" nil t)
