@@ -83,6 +83,12 @@ VALUE is a boolean. If true, the connection will be established
 using the tls.el library. If absent, `rcirc-default-use-tls' is
 used, which in turn default to nil (false).
 
+`:custom-connect-function'
+
+VALUE is a custom function to open the connection and must take
+the same arguments of `open-network-stream' If you set this,
+the :use-tls parameter is ignored (as you are supposed to set the
+connection by yourself)
 
 `:user-name'
 
@@ -111,6 +117,7 @@ connected to automatically."
 					     (:password string)
 					     (:full-name string)
 					     (:use-tls boolean)
+					     (:custom-connect-function function)
 					     (:channels (repeat string)))))
   :group 'rcirc)
 
@@ -447,6 +454,7 @@ If ARG is non-nil, instead prompt for connection parameters."
 	      (channels (plist-get (cdr c) :channels))
 	      (use-tls (or (plist-get (cdr c) :use-tls)
 		       rcirc-default-use-tls))
+	      (custom-connect-function (plist-get (cdr c) :custom-connect-function))
               (password (plist-get (cdr c) :password)))
 	  (when server
 	    (let (connected)
@@ -456,7 +464,8 @@ If ARG is non-nil, instead prompt for connection parameters."
 	      (if (not connected)
 		  (condition-case e
 		      (rcirc-connect server port nick user-name
-				     full-name channels password use-tls)
+				     full-name channels password use-tls
+				     custom-connect-function)
 		    (quit (message "Quit connecting to %s" server)))
 		(with-current-buffer (process-buffer connected)
 		  (if (process-contact (get-buffer-process
@@ -489,7 +498,8 @@ If ARG is non-nil, instead prompt for connection parameters."
 
 ;;;###autoload
 (defun rcirc-connect (server &optional port nick user-name
-                             full-name startup-channels password use-tls)
+                             full-name startup-channels password use-tls
+			     custom-connect-function)
   (save-excursion
     (message "Connecting to %s..." server)
     (let* ((inhibit-eol-conversion)
@@ -502,10 +512,12 @@ If ARG is non-nil, instead prompt for connection parameters."
 	   (user-name (or user-name rcirc-default-user-name))
 	   (full-name (or full-name rcirc-default-full-name))
 	   (startup-channels startup-channels)
-           (process)) 
-      (if use-tls
-	  (setq process (open-tls-stream server nil server port-number))
-	(setq process (open-network-stream server nil server port-number)))
+           (process))
+      (if (functionp custom-connect-function)
+	  (setq process (funcall custom-connect-function server nil server port-number))
+	(if use-tls
+	    (setq process (open-tls-stream server nil server port-number))
+	  (setq process (open-network-stream server nil server port-number))))
       (unless process
 	(error (concat 
 	       (format "Couldn't connect to %s on %d " server port-number)
